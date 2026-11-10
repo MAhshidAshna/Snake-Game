@@ -1,0 +1,236 @@
+
+using UnityEngine;
+
+public class VisualPrototypeSetup : MonoBehaviour
+{
+    [Header("References")]
+    [SerializeField] private GridManager gridManager;
+    [SerializeField] private Camera mainCamera;
+
+    private Color mossGreen = new Color(0.2f, 0.5f, 0.3f);
+    private Color goldenYellow = new Color(0.8f, 0.6f, 0.2f);
+    private Color cream = new Color(0.95f, 0.92f, 0.85f);
+    private Color mutedTurquoise = new Color(0.2f, 0.5f, 0.5f);
+
+    private bool setupCompleted = false;
+
+    private void Awake()
+    {
+        if (!Application.isPlaying || setupCompleted)
+            return;
+
+        if (gridManager == null)
+            gridManager = FindAnyObjectByType<GridManager>();
+
+        if (mainCamera == null)
+            mainCamera = Camera.main;
+
+        if (gridManager == null || mainCamera == null)
+        {
+            Debug.LogError("VisualPrototypeSetup: Missing references!");
+            enabled = false;
+            return;
+        }
+
+        CreateForestBackground();
+        CreateDecorativeElements();
+        FrameCameraToArena();
+
+        setupCompleted = true;
+    }
+
+    private void CreateForestBackground()
+    {
+        GameObject oldBackground = GameObject.Find("ForestBackground");
+
+        if (oldBackground != null)
+            Destroy(oldBackground);
+
+        GameObject background = new GameObject("ForestBackground");
+        background.transform.SetParent(mainCamera.transform, false);
+        background.transform.localPosition = new Vector3(0, 0, 6f);
+
+        SpriteRenderer sr = background.AddComponent<SpriteRenderer>();
+
+        float backgroundWidth = 25f;
+        float backgroundHeight = 16f;
+
+        Texture2D bgTexture = CreateStorybookBackgroundTexture(
+            backgroundWidth,
+            backgroundHeight
+        );
+
+        sr.sprite = Sprite.Create(
+            bgTexture,
+            new Rect(0, 0, bgTexture.width, bgTexture.height),
+            new Vector2(0.5f, 0.5f),
+            1f
+        );
+
+        sr.color = cream;
+        sr.sortingOrder = 0;
+
+        float scaleX = backgroundWidth /
+            (backgroundHeight * mainCamera.aspect);
+
+        background.transform.localScale = new Vector3(scaleX, 1f, 1f);
+    }
+
+    private Texture2D CreateStorybookBackgroundTexture(
+        float width,
+        float height
+    )
+    {
+        int texWidth = Mathf.CeilToInt(width);
+        int texHeight = Mathf.CeilToInt(height);
+
+        Color[] pixels = new Color[texWidth * texHeight];
+
+        for (int y = 0; y < texHeight; y++)
+        {
+            for (int x = 0; x < texWidth; x++)
+            {
+                float xNorm = (float)x / texWidth;
+                float yNorm = (float)y / texHeight;
+
+                Color baseColor = cream;
+
+                if (xNorm > 0.4f && xNorm < 0.6f &&
+                    yNorm > 0.3f && yNorm < 0.7f)
+                {
+                    baseColor = mossGreen * 0.3f + baseColor * 0.7f;
+                }
+
+                if (Random.value > 0.8f)
+                    baseColor = goldenYellow * 0.2f + baseColor * 0.8f;
+
+                if (Random.value > 0.9f)
+                    baseColor = mutedTurquoise * 0.1f + baseColor * 0.9f;
+
+                pixels[y * texWidth + x] = baseColor;
+            }
+        }
+
+        Texture2D texture = new Texture2D(texWidth, texHeight);
+        texture.wrapMode = TextureWrapMode.Clamp;
+        texture.filterMode = FilterMode.Bilinear;
+        texture.SetPixels(pixels);
+        texture.Apply();
+
+        return texture;
+    }
+
+    private void CreateDecorativeElements()
+    {
+        Random.InitState(12345);
+
+        int count = Random.Range(3, 6);
+
+        for (int i = 0; i < count; i++)
+        {
+            int side = Random.Range(0, 4);
+
+            Vector3 position = Vector3.zero;
+
+            switch (side)
+            {
+                case 0:
+                    position = new Vector3(Random.Range(-8f, 8f), 6f, 0f);
+                    break;
+
+                case 1:
+                    position = new Vector3(8f, Random.Range(-4f, 4f), 0f);
+                    break;
+
+                case 2:
+                    position = new Vector3(Random.Range(-8f, 8f), -6f, 0f);
+                    break;
+
+                case 3:
+                    position = new Vector3(-8f, Random.Range(-4f, 4f), 0f);
+                    break;
+            }
+
+            GameObject deco = new GameObject($"ForestDeco_{i}");
+            deco.transform.position = position;
+            deco.transform.localScale =
+                Vector3.one * (0.5f + Random.value * 0.5f);
+
+            SpriteRenderer decoSr =
+                deco.AddComponent<SpriteRenderer>();
+
+            decoSr.sortingOrder = 4;
+
+            Texture2D decoTex = CreateDecorativeElementTexture(side);
+
+            decoSr.sprite = Sprite.Create(
+                decoTex,
+                new Rect(0, 0, 32, 32),
+                new Vector2(0.5f, 0.5f),
+                1f
+            );
+
+            decoSr.color = Color.white;
+        }
+    }
+
+    private Texture2D CreateDecorativeElementTexture(int side)
+    {
+        int texSize = 32;
+        Color[] pixels = new Color[texSize * texSize];
+
+        for (int y = 0; y < texSize; y++)
+        {
+            for (int x = 0; x < texSize; x++)
+            {
+                float xNorm = (float)x / texSize;
+                float yNorm = (float)y / texSize;
+
+                float centerX = xNorm - 0.5f;
+                float centerY = yNorm - 0.5f;
+
+                float distance = Mathf.Sqrt(
+                    centerX * centerX + centerY * centerY
+                );
+
+                if (side == 0 || side == 2)
+                {
+                    if (yNorm < 0.5f && distance < 0.4f)
+                        pixels[y * texSize + x] =
+                            new Color(0.6f, 0.2f, 0.1f);
+                    else if (distance < 0.45f)
+                        pixels[y * texSize + x] =
+                            new Color(0.5f, 0.3f, 0.2f, 0.5f);
+                    else
+                        pixels[y * texSize + x] = Color.clear;
+                }
+                else
+                {
+                    if (yNorm > 0.7f &&
+                        Mathf.Abs(centerX) < 0.15f)
+                        pixels[y * texSize + x] =
+                            new Color(0.35f, 0.25f, 0.15f);
+                    else if (yNorm > 0.3f &&
+                             Mathf.Abs(centerX) < 0.3f)
+                        pixels[y * texSize + x] = goldenYellow * 0.5f;
+                    else
+                        pixels[y * texSize + x] = Color.clear;
+                }
+            }
+        }
+
+        Texture2D tex = new Texture2D(texSize, texSize);
+        tex.SetPixels(pixels);
+        tex.wrapMode = TextureWrapMode.Clamp;
+        tex.filterMode = FilterMode.Bilinear;
+        tex.Apply();
+
+        return tex;
+    }
+
+    private void FrameCameraToArena()
+    {
+        mainCamera.transform.position = new Vector3(0, 0, -7f);
+        mainCamera.orthographicSize = 7f;
+    }
+}

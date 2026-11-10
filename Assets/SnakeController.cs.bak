@@ -1,0 +1,339 @@
+
+
+using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+
+public class SnakeController : MonoBehaviour
+{
+    [Header("Movement Settings")]
+    [SerializeField] private float movementInterval = 0.15f;
+
+    [Header("References")]
+    [SerializeField] private GridManager gridManager;
+    [SerializeField] private FoodSpawner foodSpawner;
+
+    [Header("Snake Settings")]
+    [SerializeField] public int startingLength = 3;
+
+    public enum Direction { Up, Down, Left, Right }
+
+    public Direction currentDirection = Direction.Right;
+    public Direction queuedDirection = Direction.Right;
+
+    public bool isGameOver = false;
+    public bool isPaused = false;
+
+    private List<Vector2Int> positions = new List<Vector2Int>();
+    private List<GameObject> segments = new List<GameObject>();
+
+    private Coroutine moveRoutine;
+    private GameManager gameManager;
+
+    private bool hasStarted = false;
+    private bool growNextMove = false;
+
+    public bool IsPositionOccupied(Vector2Int position)
+    {
+        return positions.Contains(position);
+    }
+
+    private void Awake()
+    {
+        if (gridManager == null)
+            gridManager = FindAnyObjectByType<GridManager>();
+
+        gameManager = FindAnyObjectByType<GameManager>();
+
+        if (gridManager == null)
+        {
+            Debug.LogError("SnakeController: GridManager not found!");
+            enabled = false;
+            return;
+        }
+
+        InitializeSnake();
+    }
+
+    private void Update()
+    {
+        HandleInput();
+    }
+
+    public void InitializeSnake()
+    {
+        ClearSnake();
+
+        positions.Clear();
+        segments.Clear();
+
+        Vector2Int center = gridManager.CenterPosition;
+
+        currentDirection = Direction.Right;
+        queuedDirection = Direction.Right;
+
+        isGameOver = false;
+        isPaused = false;
+        hasStarted = false;
+        growNextMove = false;
+
+        for (int i = 0; i < startingLength; i++)
+        {
+            Vector2Int position = center + Vector2Int.left * i;
+
+            positions.Add(position);
+
+            GameObject segment = CreateSegment(i == 0);
+            segment.transform.position = gridManager.GridToWorld(position);
+
+            segments.Add(segment);
+        }
+    }
+
+    private GameObject CreateSegment(bool isHead)
+    {
+        GameObject segment = new GameObject(
+            isHead ? "SnakeHead" : "SnakeBody"
+        );
+
+        segment.transform.SetParent(transform);
+
+        SpriteRenderer renderer = segment.AddComponent<SpriteRenderer>();
+
+        renderer.sprite = CreateSquareSprite();
+        renderer.color = isHead
+            ? new Color(0.1f, 0.9f, 0.1f)
+            : Color.green;
+
+        renderer.sortingOrder = 5;
+
+        return segment;
+    }
+
+    private Sprite CreateSquareSprite()
+    {
+        Texture2D texture = Texture2D.whiteTexture;
+
+        return Sprite.Create(
+            texture,
+            new Rect(0, 0, 1, 1),
+            new Vector2(0.5f, 0.5f),
+            1f
+        );
+    }
+
+    public void ClearSnake()
+    {
+        for (int i = transform.childCount - 1; i >= 0; i--)
+        {
+            Destroy(transform.GetChild(i).gameObject);
+        }
+    }
+
+    private void HandleInput()
+    {
+        if (isGameOver || isPaused)
+            return;
+
+        if (Input.GetKeyDown(KeyCode.UpArrow) ||
+            Input.GetKeyDown(KeyCode.W))
+        {
+            SetDirection(Direction.Up);
+        }
+        else if (Input.GetKeyDown(KeyCode.DownArrow) ||
+                 Input.GetKeyDown(KeyCode.S))
+        {
+            SetDirection(Direction.Down);
+        }
+        else if (Input.GetKeyDown(KeyCode.LeftArrow) ||
+                 Input.GetKeyDown(KeyCode.A))
+        {
+            SetDirection(Direction.Left);
+        }
+        else if (Input.GetKeyDown(KeyCode.RightArrow) ||
+                 Input.GetKeyDown(KeyCode.D))
+        {
+            SetDirection(Direction.Right);
+        }
+    }
+
+    public void SetDirection(Direction newDirection)
+    {
+        if (IsOpposite(currentDirection, newDirection))
+            return;
+
+        queuedDirection = newDirection;
+
+        if (!hasStarted)
+        {
+            hasStarted = true;
+            StartMovementRoutine();
+        }
+    }
+
+    private bool IsOpposite(Direction a, Direction b)
+    {
+        return
+            (a == Direction.Up && b == Direction.Down) ||
+            (a == Direction.Down && b == Direction.Up) ||
+            (a == Direction.Left && b == Direction.Right) ||
+            (a == Direction.Right && b == Direction.Left);
+    }
+
+    private void StartMovementRoutine()
+    {
+        if (moveRoutine == null)
+        {
+            moveRoutine = StartCoroutine(MoveRoutine());
+        }
+    }
+
+    private IEnumerator MoveRoutine()
+    {
+        while (!isGameOver)
+        {
+            if (!isPaused)
+            {
+                MoveSnake();
+            }
+
+            yield return new WaitForSeconds(movementInterval);
+        }
+
+        moveRoutine = null;
+    }
+
+    private void MoveSnake()
+    {
+        if (positions.Count == 0)
+            return;
+
+        currentDirection = queuedDirection;
+
+        Vector2Int newHead = positions[0];
+
+        switch (currentDirection)
+        {
+            case Direction.Up:
+                newHead += Vector2Int.up;
+                break;
+
+            case Direction.Down:
+                newHead += Vector2Int.down;
+                break;
+
+            case Direction.Left:
+                newHead += Vector2Int.left;
+                break;
+
+            case Direction.Right:
+                newHead += Vector2Int.right;
+                break;
+        }
+
+        if (!gridManager.IsWithinBounds(newHead))
+        {
+            TriggerGameOver("Wall Collision");
+            return;
+        }
+
+        Food food = FindAnyObjectByType<Food>();
+
+        bool eatingFood = food != null &&
+                          newHead == food.GridPosition;
+
+        bool growing = growNextMove || eatingFood;
+
+        int collisionLimit = growing
+            ? positions.Count
+            : positions.Count - 1;
+
+        for (int i = 0; i < collisionLimit; i++)
+        {
+            if (positions[i] == newHead)
+            {
+                TriggerGameOver("Self Collision");
+                return;
+            }
+        }
+
+        growNextMove = false;
+
+        positions.Insert(0, newHead);
+
+        if (!growing)
+        {
+            positions.RemoveAt(positions.Count - 1);
+        }
+
+        if (eatingFood)
+        {
+            food.Collect(this);
+            Debug.Log("Food collected!");
+        }
+
+        if (growing)
+        {
+            GameObject newSegment = CreateSegment(false);
+            segments.Add(newSegment);
+        }
+
+        UpdateSegmentPositions();
+    }
+
+    private void UpdateSegmentPositions()
+    {
+        for (int i = 0; i < positions.Count; i++)
+        {
+            segments[i].transform.position =
+                gridManager.GridToWorld(positions[i]);
+        }
+    }
+
+    private void TriggerGameOver(string reason)
+    {
+        isGameOver = true;
+        isPaused = true;
+
+        if (moveRoutine != null)
+        {
+            StopCoroutine(moveRoutine);
+            moveRoutine = null;
+        }
+
+        gameManager?.GameOver(reason);
+
+        Debug.Log("Game Over: " + reason);
+    }
+
+    public void AddSegment()
+    {
+        if (isGameOver || positions.Count == 0)
+            return;
+
+        growNextMove = true;
+    }
+
+    public void PauseGame()
+    {
+        isPaused = true;
+    }
+
+    public void ResumeGame()
+    {
+        isPaused = false;
+    }
+
+    public void RestartGame()
+    {
+        if (moveRoutine != null)
+        {
+            StopCoroutine(moveRoutine);
+            moveRoutine = null;
+        }
+
+        InitializeSnake();
+
+        gameManager?.ResetState();
+    }
+}
